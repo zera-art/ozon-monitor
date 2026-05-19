@@ -86,26 +86,33 @@ def classify_sku(
     demand_delta_pct = _delta(orders_28d, orders_prev_28d)
     discount_pct     = _discount(current_price, old_price)
 
+    # 1. Нет спроса: есть товар, но нет заказов за 28 дней
     if stock > 0 and orders_28d == 0:
-        return "🔴 МЁРТВЫЙ ОСТАТОК", 1
+        return "⚫ НЕТ СПРОСА", 1
 
-    if stock < orders_7d:
+    # 2. Критичный остаток: оборачиваемость > 90 дней
+    if turnover_days > 90:
         return "🔴 КРИТИЧНЫЙ ОСТАТОК", 1
 
+    # 3. Медленные продажи: оборачиваемость 60–90 дней
+    if 60 < turnover_days <= 90:
+        return "🟠 МЕДЛЕННЫЕ ПРОДАЖИ", 2
+
+    # 4. Пересмотреть цену: скидка > 20% и продажи не выросли
     if discount_pct > 20 and demand_delta_pct < 10:
-        return "🔴 РАСПРОДАЖА НЕЭФФЕКТИВНА", 1
+        return "🟡 ПЕРЕСМОТРЕТЬ ЦЕНУ", 1
 
-    if turnover_days > 60:
-        return "🟠 ЗАМЕДЛЕННАЯ ОБОРАЧИВАЕМОСТЬ", 2
+    # 5. Нужна поставка: остаток < заказов за 7 дней
+    if orders_7d > 0 and stock < orders_7d:
+        return "🔵 НУЖНА ПОСТАВКА", 1
 
-    if prev_price > 0 and current_price > prev_price * 1.05:
-        return "🔵 ЦЕНА ПОДНЯТА", 3
-
-    if turnover_days < 21 and stock > 0:
+    # 6. Поднять цену: оборачиваемость < 21 дня
+    if 0 < turnover_days < 21 and stock > 0:
         return "🟢 ПОДНЯТЬ ЦЕНУ", 3
 
+    # 7. Спрос растёт: > 20%
     if demand_delta_pct > 20:
-        return "🟢 НОРМАЛИЗАЦИЯ", 3
+        return "✅ СПРОС РАСТЁТ", 3
 
     return "🟡 МОНИТОРИНГ", 3
 
@@ -155,12 +162,15 @@ def compute_metrics(
         if "ПОДНЯТЬ ЦЕНУ" in status:
             new_price      = calc_price_raise(turnover, delta, price)
             recommendation = f"Поднять цену до {new_price} руб." if new_price else ""
-        elif "МЁРТВЫЙ" in status or "ЗАМЕДЛЕННАЯ" in status:
+        elif "НЕТ СПРОСА" in status:
+            new_price      = calc_price_decrease(999.0, price, category, has_no_sales_14d=True)
+            recommendation = f"Снизить цену до {new_price} руб." if new_price else "Снизить цену на 30%"
+        elif "МЕДЛЕННЫЕ" in status or "КРИТИЧНЫЙ" in status:
             new_price      = calc_price_decrease(turnover, price, category)
             recommendation = f"Снизить цену до {new_price} руб." if new_price else ""
-        elif "КРИТИЧНЫЙ" in status:
+        elif "НУЖНА ПОСТАВКА" in status:
             recommendation = "Срочно пополнить остаток"
-        elif "РАСПРОДАЖА НЕЭФФЕКТИВНА" in status:
+        elif "ПЕРЕСМОТРЕТЬ" in status:
             recommendation = "Проверить карточку, SEO, рекламу"
 
         result[oid] = SKUMetrics(

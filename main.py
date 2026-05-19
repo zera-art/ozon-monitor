@@ -8,6 +8,8 @@ from datetime import datetime
 from dotenv import load_dotenv
 load_dotenv()
 
+sys.stdout.reconfigure(encoding="utf-8")
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
