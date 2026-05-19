@@ -62,6 +62,9 @@ def main():
     logger.info("📊 Загружаем заказы (предыдущие 28д)...")
     orders_prev = ozon.get_orders_prev_28d()
 
+    logger.info("📊 Загружаем заказы (90д, для архива)...")
+    orders_90d = ozon.get_orders_90d()
+
     # ── 2. Метрики ────────────────────────────────────────────────────────────
     logger.info("🧮 Считаем метрики...")
 
@@ -74,7 +77,7 @@ def main():
     # Читаем историю для статуса ЦЕНА ПОДНЯТА
     history = sheets._read_history_snapshot()
 
-    metrics = compute_metrics(stocks, products, prices, orders_28d, orders_prev, history)
+    metrics = compute_metrics(stocks, products, prices, orders_28d, orders_prev, history, orders_90d)
     summary = build_summary(metrics)
     logger.info(f"  → {summary['total_skus']} SKU | Срочных: {summary['urgent_count']}")
 

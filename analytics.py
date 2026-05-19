@@ -79,6 +79,7 @@ def classify_sku(
     old_price: float,
     prev_price: float = 0.0,
     category: str = "",
+    orders_90d: int = 0,
 ) -> tuple[str, int]:
     """Возвращает (статус, приоритет)."""
     orders_7d        = orders_28d / 4
@@ -86,25 +87,33 @@ def classify_sku(
     demand_delta_pct = _delta(orders_28d, orders_prev_28d)
     discount_pct     = _discount(current_price, old_price)
 
-    # 1. Нет спроса: есть товар, но нет заказов за 28 дней
+    # 0a. Нет в наличии: stock=0, заказов 28д нет, но были в 90д
+    if stock == 0 and orders_28d == 0 and orders_90d > 0:
+        return "⬜ НЕТ В НАЛИЧИИ", 5
+
+    # 0b. Выведен из продажи: stock=0, заказов не было ни за 28д, ни за 90д
+    if stock == 0 and orders_28d == 0 and orders_90d == 0:
+        return "📦 ВЫВЕДЕН ИЗ ПРОДАЖИ", 6
+
+    # 1. Нужна поставка: stock=0 при наличии заказов, или stock < заказов 7д
+    if (stock == 0 and orders_28d > 0) or (orders_7d > 0 and stock < orders_7d):
+        return "🔵 НУЖНА ПОСТАВКА", 1
+
+    # 2. Нет спроса: есть товар, но нет заказов за 28 дней
     if stock > 0 and orders_28d == 0:
         return "⚫ НЕТ СПРОСА", 1
 
-    # 2. Критичный остаток: оборачиваемость > 90 дней
+    # 3. Критичный остаток: оборачиваемость > 90 дней
     if turnover_days > 90:
         return "🔴 КРИТИЧНЫЙ ОСТАТОК", 1
 
-    # 3. Медленные продажи: оборачиваемость 60–90 дней
+    # 4. Медленные продажи: оборачиваемость 60–90 дней
     if 60 < turnover_days <= 90:
         return "🟠 МЕДЛЕННЫЕ ПРОДАЖИ", 2
 
-    # 4. Пересмотреть цену: скидка > 20% и продажи не выросли
+    # 5. Пересмотреть цену: скидка > 20% и спрос не вырос
     if discount_pct > 20 and demand_delta_pct < 10:
         return "🟡 ПЕРЕСМОТРЕТЬ ЦЕНУ", 1
-
-    # 5. Нужна поставка: остаток < заказов за 7 дней
-    if orders_7d > 0 and stock < orders_7d:
-        return "🔵 НУЖНА ПОСТАВКА", 1
 
     # 6. Поднять цену: оборачиваемость < 21 дня
     if 0 < turnover_days < 21 and stock > 0:
@@ -124,6 +133,7 @@ def compute_metrics(
     orders_28d:      dict[str, int],
     orders_prev_28d: dict[str, int],
     history:         dict[str, dict] | None = None,
+    orders_90d:      dict[str, int] | None = None,
 ) -> dict[str, SKUMetrics]:
     """Строит словарь offer_id → SKUMetrics."""
     all_ids = set(stocks) | set(products) | set(prices) | set(orders_28d)
@@ -135,6 +145,7 @@ def compute_metrics(
         prc   = prices.get(oid, {})
         ord28 = orders_28d.get(oid, 0)
         prev  = orders_prev_28d.get(oid, 0)
+        ord90 = (orders_90d or {}).get(oid, 0)
 
         stock     = stk.get("stock", 0)
         reserved  = stk.get("reserved", 0)
@@ -146,7 +157,7 @@ def compute_metrics(
         category   = prod.get("category", "")
 
         status, priority = classify_sku(
-            stock, ord28, prev, price, old_price, prev_price, category
+            stock, ord28, prev, price, old_price, prev_price, category, ord90
         )
 
         orders_7d   = ord28 / 4
@@ -172,6 +183,10 @@ def compute_metrics(
             recommendation = "Срочно пополнить остаток"
         elif "ПЕРЕСМОТРЕТЬ" in status:
             recommendation = "Проверить карточку, SEO, рекламу"
+        elif "НЕТ В НАЛИЧИИ" in status:
+            recommendation = "Пополнить при необходимости"
+        elif "ВЫВЕДЕН" in status:
+            recommendation = "Товар выведен из продажи, перенесён в архив"
 
         result[oid] = SKUMetrics(
             offer_id=oid,

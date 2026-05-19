@@ -35,6 +35,8 @@ STATUS_ROW_COLORS = {
     "КРИТИЧНЫЙ":      "#FEE2E2",
     "МЕДЛЕННЫЕ":      "#FFEDD5",
     "НЕТ СПРОСА":     "#F3F4F6",
+    "НЕТ В НАЛИЧИИ":  "#E5E7EB",
+    "ВЫВЕДЕН":        "#9CA3AF",
     "НУЖНА ПОСТАВКА": "#DBEAFE",
     "ПЕРЕСМОТРЕТЬ":   "#FEF9C3",
     "ПОДНЯТЬ ЦЕНУ":   "#DCFCE7",
@@ -59,6 +61,7 @@ class OzonSheetsWriter:
         "🎯 РЕШЕНИЯ",
         "📊 СВОДКА",
         "📦 ВСЕ SKU",
+        "📦 АРХИВ",
         "📅 ИСТОРИЯ",
         "⚙️ НАСТРОЙКИ",
         "📋 ПРАВИЛА",
@@ -169,12 +172,17 @@ class OzonSheetsWriter:
         if history:
             _apply_price_raised(metrics, history)
 
-        summary       = build_summary(metrics)
-        sorted_metrics = sorted(metrics.values(), key=lambda m: (m.priority, -m.orders_28d))
+        # Разбиваем на активные и архивные (ВЫВЕДЕН ИЗ ПРОДАЖИ)
+        active_metrics   = {oid: m for oid, m in metrics.items() if "ВЫВЕДЕН" not in m.status}
+        archived_metrics = {oid: m for oid, m in metrics.items() if "ВЫВЕДЕН" in m.status}
+
+        summary        = build_summary(active_metrics)
+        sorted_metrics = sorted(active_metrics.values(), key=lambda m: (m.priority, -m.orders_28d))
 
         self._update_decisions(sorted_metrics)
         self._update_summary(summary, sorted_metrics)
         self._update_all_skus(sorted_metrics)
+        self._update_archive(archived_metrics)
         self._setup_rules_sheet()
         self._save_history_snapshot(sorted_metrics)
         logger.info("✅ Дашборд обновлён")
@@ -296,6 +304,45 @@ class OzonSheetsWriter:
             ]
         )
 
+    # ── АРХИВ ─────────────────────────────────────────────────────────────────
+
+    def _update_archive(self, archived: dict[str, SKUMetrics]):
+        ws = self._get_sheet("📦 АРХИВ")
+        ws.clear()
+        sid = ws.id
+        archive_headers = [
+            "Артикул", "Название", "Категория",
+            "Последний заказ", "Дней без продаж", "Последняя цена", "Остаток",
+        ]
+        rows = [
+            ["АРХИВ — товары без продаж 90+ дней"],
+            [""],
+            archive_headers,
+        ]
+        sorted_archived = sorted(archived.values(), key=lambda m: m.offer_id)
+        for m in sorted_archived:
+            rows.append([
+                m.offer_id,
+                m.name[:50],
+                m.category,
+                "—",
+                90,
+                m.price,
+                m.stock,
+            ])
+        self._write(ws, rows)
+        time.sleep(1)
+        ncols = len(archive_headers)
+        self._batch([
+            self._cell_req(sid, 0, 1, 0, ncols, {
+                "textFormat": {"bold": True, "fontSize": 12},
+            }),
+            self._header_req(sid, 2, ncols),
+            self._freeze_req(sid, 3),
+            self._resize_req(sid, ncols),
+        ])
+        logger.info(f"Лист АРХИВ: {len(sorted_archived)} товаров")
+
     # ── ИСТОРИЯ ───────────────────────────────────────────────────────────────
 
     def _save_history_snapshot(self, metrics: list[SKUMetrics]):
@@ -368,14 +415,16 @@ class OzonSheetsWriter:
             ["📋 ПРАВИЛА OZON МОНИТОРА"], [""],
             ["РАЗДЕЛ 1 — СТАТУСЫ И ДЕЙСТВИЯ", "", "", ""],
             ["Статус", "Условие", "Действие", "Приоритет"],
-            ["⚫ НЕТ СПРОСА",         "stock > 0 и заказов за 28д = 0",   "Снизить цену −30% или вывезти",          "1"],
-            ["🔴 КРИТИЧНЫЙ ОСТАТОК", "оборачиваемость > 90 дней",        "Снизить цену на 20%, усилить трафик",    "1"],
-            ["🟠 МЕДЛЕННЫЕ ПРОДАЖИ", "оборачиваемость 60–90 дней",       "Снизить цену на 10–20%",                 "2"],
-            ["🟡 ПЕРЕСМОТРЕТЬ ЦЕНУ", "скидка > 20% и спрос не вырос",   "Проверить карточку, SEO, рекламу",       "1"],
-            ["🔵 НУЖНА ПОСТАВКА",    "stock < заказов за 7д",            "Срочно пополнить остаток",               "1"],
-            ["🟢 ПОДНЯТЬ ЦЕНУ",      "оборачиваемость < 21 дня",         "Поднять цену согласно таблице",          "3"],
-            ["✅ СПРОС РАСТЁТ",      "спрос вырос > 20%",                "Готовиться к повышению цены",            "3"],
-            ["🟡 МОНИТОРИНГ",        "всё остальное",                    "Продолжать мониторинг",                  "4"],
+            ["⚫ НЕТ СПРОСА",            "stock > 0, заказов 28д = 0",                               "Снизить цену −30% или вывезти",          "1"],
+            ["🔴 КРИТИЧНЫЙ ОСТАТОК",     "оборачиваемость > 90 дней",                                "Снизить цену 20%, усилить трафик",       "1"],
+            ["🟠 МЕДЛЕННЫЕ ПРОДАЖИ",     "оборачиваемость 60–90 дней",                               "Снизить цену 10–20%",                    "2"],
+            ["🟡 ПЕРЕСМОТРЕТЬ ЦЕНУ",     "скидка > 20% и спрос не вырос",                           "Проверить карточку, SEO",                "1"],
+            ["🔵 НУЖНА ПОСТАВКА",        "stock = 0 при заказах или stock < заказов 7д",             "Срочно пополнить",                       "1"],
+            ["🟢 ПОДНЯТЬ ЦЕНУ",          "оборачиваемость < 21 дня",                                 "Поднять цену по таблице",                "3"],
+            ["✅ СПРОС РАСТЁТ",          "спрос вырос > 20%",                                        "Готовиться к повышению цены",            "3"],
+            ["⬜ НЕТ В НАЛИЧИИ",         "stock = 0, продаж нет 28д, но были в 90д",                 "Пополнить при необходимости",            "5"],
+            ["📦 ВЫВЕДЕН ИЗ ПРОДАЖИ",   "stock = 0, продаж нет 90д",                               "Перенесён в АРХИВ",                      "6"],
+            ["🟡 МОНИТОРИНГ",            "всё остальное",                                            "Продолжать мониторинг",                  "4"],
             [""],
             ["РАЗДЕЛ 2 — ПРАВИЛА ПОДЪЁМА ЦЕНЫ", "", "", ""],
             ["Оборачиваемость", "Динамика спроса", "Подъём цены", "Примечание"],
@@ -394,12 +443,12 @@ class OzonSheetsWriter:
         self._write(ws, rows)
         time.sleep(1)
         reqs = []
-        for row_idx in [2, 13, 23]:
+        for row_idx in [2, 15, 25]:
             reqs.append(self._cell_req(sid, row_idx, row_idx+1, 0, 4, {
                 "backgroundColor": _hex(HEADER_BG),
                 "textFormat": {"bold": True, "foregroundColor": WHITE, "fontSize": 11},
             }))
-        for row_idx in [3, 14, 24]:
+        for row_idx in [3, 16, 26]:
             reqs.append(self._header_req(sid, row_idx, 4))
         reqs += [self._freeze_req(sid, 1), self._resize_req(sid, 4)]
         self._batch(reqs)

@@ -217,6 +217,12 @@ class OzonClient:
     def get_orders_prev_28d(self) -> dict[str, int]:
         return self.get_orders_period(56, 28)
 
+    def get_orders_90d(self) -> dict[str, int]:
+        """offer_id → кол-во заказов за последние 90 дней."""
+        r = self.get_orders_period(90)
+        logger.info(f"Заказы 90д: {len(r)} SKU, {sum(r.values())} шт")
+        return r
+
 
 def _f(v) -> float:
     try:
