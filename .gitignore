@@ -1,0 +1,7 @@
+.env
+google_credentials.json
+*.log
+__pycache__/
+*.pyc
+.DS_Store
+last_run_cache.json
