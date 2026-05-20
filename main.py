@@ -105,9 +105,9 @@ def main():
     logger.info("📈 Обновляем контрольные точки эффективности...")
     sheets.update_effectiveness_checkpoints(metrics)
 
-    # ── 6. Понедельник — очередь изменений ───────────────────────────────────
-    if weekday == 0:
-        logger.info("📋 Понедельник — формируем очередь изменений...")
+    # ── 6. Очередь изменений: понедельник или очередь пуста/отправлена ──────
+    if weekday == 0 or sheets._queue_all_sent():
+        logger.info("📋 Формируем очередь изменений цен...")
         queue_result = sheets.update_price_queue(sorted_metrics)
         if not queue_result.get("skipped"):
             notifier.send_queue_ready(

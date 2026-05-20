@@ -474,7 +474,7 @@ class OzonSheetsWriter:
         n_up = n_down = 0
 
         for m in sorted_metrics:
-            if "РАСПРОДАЖА НЕЭФФЕКТИВНА" in m.status:
+            if "ПЕРЕСМОТРЕТЬ" in m.status:
                 continue
             if "ПОДНЯТЬ ЦЕНУ" in m.status:
                 np = calc_price_raise(m.turnover_days, m.demand_delta_pct, m.price)
@@ -484,8 +484,11 @@ class OzonSheetsWriter:
                 rows.append([m.offer_id, m.name[:40], m.category,
                              m.price, np, f"+{pct}%", "Поднять цену", today, False, ""])
                 n_up += 1
-            elif "МЁРТВЫЙ" in m.status or "ЗАМЕДЛЕННАЯ" in m.status:
-                np = calc_price_decrease(m.turnover_days, m.price, m.category)
+            elif ("НЕТ СПРОСА" in m.status or "МЕДЛЕННЫЕ" in m.status
+                  or "КРИТИЧНЫЙ" in m.status):
+                has_no_sales = "НЕТ СПРОСА" in m.status
+                np = calc_price_decrease(m.turnover_days, m.price, m.category,
+                                         has_no_sales_14d=has_no_sales)
                 if not np:
                     continue
                 pct = round((np / m.price - 1) * 100)
