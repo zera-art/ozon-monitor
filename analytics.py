@@ -174,10 +174,12 @@ def compute_metrics(
             new_price      = calc_price_raise(turnover, delta, price)
             recommendation = f"Поднять цену до {new_price} руб." if new_price else ""
         elif "НЕТ СПРОСА" in status:
-            new_price      = calc_price_decrease(999.0, price, category, has_no_sales_14d=True)
+            _dec           = calc_price_decrease(999.0, price, category, has_no_sales_14d=True)
+            new_price      = _dec["new_price"] if _dec else None
             recommendation = f"Снизить цену до {new_price} руб." if new_price else "Снизить цену на 30%"
         elif "МЕДЛЕННЫЕ" in status or "КРИТИЧНЫЙ" in status:
-            new_price      = calc_price_decrease(turnover, price, category)
+            _dec           = calc_price_decrease(turnover, price, category)
+            new_price      = _dec["new_price"] if _dec else None
             recommendation = f"Снизить цену до {new_price} руб." if new_price else ""
         elif "НУЖНА ПОСТАВКА" in status:
             recommendation = "Срочно пополнить остаток"
@@ -251,7 +253,12 @@ def calc_price_raise(turnover_days: float, demand_delta_pct: float,
 
 
 def calc_price_decrease(turnover_days: float, current_price: float,
-                        category: str, has_no_sales_14d: bool = False) -> Optional[float]:
+                        category: str, has_no_sales_14d: bool = False) -> Optional[dict]:
+    """
+    Новая цена = max(формула, floor по категории, current_price/2).
+    WB не разрешает снижать цену более чем вдвое за один раз.
+    Возвращает {"new_price": float, "is_floor": bool, "is_wb_limit": bool} или None.
+    """
     if has_no_sales_14d or turnover_days > 180:
         pct = 30
     elif turnover_days > 90:
@@ -260,10 +267,23 @@ def calc_price_decrease(turnover_days: float, current_price: float,
         pct = 10
     else:
         return None
-    raw      = current_price * (1 - pct / 100)
-    fp       = config.floor_price(category)
-    new_price = max(raw, fp)
-    return _round10(new_price)
+
+    raw    = current_price * (1 - pct / 100)
+    fp     = config.floor_price(category)
+    wb_min = current_price / 2  # WB: нельзя снижать цену более чем вдвое
+
+    final = raw
+    is_floor    = False
+    is_wb_limit = False
+    if fp > final:
+        final = fp
+        is_floor = True
+    if wb_min > final:
+        final = wb_min
+        is_floor    = False
+        is_wb_limit = True
+
+    return {"new_price": _round10(final), "is_floor": is_floor, "is_wb_limit": is_wb_limit}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

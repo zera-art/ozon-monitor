@@ -487,13 +487,20 @@ class OzonSheetsWriter:
             elif ("НЕТ СПРОСА" in m.status or "МЕДЛЕННЫЕ" in m.status
                   or "КРИТИЧНЫЙ" in m.status):
                 has_no_sales = "НЕТ СПРОСА" in m.status
-                np = calc_price_decrease(m.turnover_days, m.price, m.category,
-                                         has_no_sales_14d=has_no_sales)
-                if not np:
+                dec = calc_price_decrease(m.turnover_days, m.price, m.category,
+                                          has_no_sales_14d=has_no_sales)
+                if not dec:
                     continue
+                np = dec["new_price"]
                 pct = round((np / m.price - 1) * 100)
+                if dec.get("is_wb_limit"):
+                    new_p_display = f"{np} (лимит WB)"
+                elif dec.get("is_floor"):
+                    new_p_display = f"{np} (min)"
+                else:
+                    new_p_display = np
                 rows.append([m.offer_id, m.name[:40], m.category,
-                             m.price, np, f"{pct}%", "Снизить цену", today, False, ""])
+                             m.price, new_p_display, f"{pct}%", "Снизить цену", today, False, ""])
                 n_down += 1
 
         ws.clear()
