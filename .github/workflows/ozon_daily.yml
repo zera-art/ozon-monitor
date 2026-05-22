@@ -2,32 +2,24 @@ name: Ozon Monitor Daily
 
 on:
   schedule:
-    - cron: "0 7 * * *"   # 07:00 UTC = 10:00 МСК
-  workflow_dispatch:        # Ручной запуск
+    - cron: '0 7 * * *'
+  workflow_dispatch:
 
 jobs:
-  run:
+  update:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
         with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Write Google credentials
-        run: echo '${{ secrets.GOOGLE_CREDENTIALS }}' > google_credentials.json
-
-      - name: Run Ozon Monitor
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - run: echo '${{ secrets.GOOGLE_CREDENTIALS }}' > google_credentials.json
+      - run: python main.py
         env:
-          OZON_CLIENT_ID:     ${{ secrets.OZON_CLIENT_ID }}
-          OZON_API_KEY:       ${{ secrets.OZON_API_KEY }}
-          OZON_SHEETS_ID:     ${{ secrets.OZON_SHEETS_ID }}
+          OZON_CLIENT_ID: ${{ secrets.OZON_CLIENT_ID }}
+          OZON_API_KEY: ${{ secrets.OZON_API_KEY }}
+          OZON_SHEETS_ID: ${{ secrets.OZON_SHEETS_ID }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
-          GOOGLE_CREDENTIALS_PATH: google_credentials.json
-        run: python main.py
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
